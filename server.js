@@ -1,6 +1,5 @@
 import express from 'express';
-import { connect } from "puppeteer-real-browser";
-import pluginStealth from "puppeteer-extra-plugin-stealth";
+import puppeteer from "puppeteer";
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -8,94 +7,77 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
 app.use(express.static(join(__dirname, 'public')));
 
-// بيانات المواقع المدعومة مع تحديد المواقع التي تستخدم Cloudflare
+// بيانات المواقع المدعومة
 const sites = {
     "yorurl": {
         baseUrl: "https://go.yorurl.com/",
-        referer: "https://earnbox.in/",
-        needsCloudflareWait: false // هذا يستخدم Cloudflare
-
-
+        referer: "https://how2guidess.com/"
     },
-    
     "linkjust": {
         baseUrl: "https://linkjust.com/",
-        referer: "https://yjiur.xyz/",
-        needsCloudflareWait: false
+        referer: "https://yjiur.xyz/"
     },
     "shr2link": {
         baseUrl: "https://shr2.link/",
-        referer: "https://bigcarinsurance.com/",
-        needsCloudflareWait: false
+        referer: "https://bigcarinsurance.com/"
     },
     "nitro-link": {
         baseUrl: "https://nitro-link.com/",
-        referer: "https://finestart.online/",
-        needsCloudflareWait: false
+        referer: "https://finestart.online/"
     }
 };
 
-// دالة استخراج الرابط محسنة مع محاولة ثانية
-async function extractDownloadLink(fullUrl, referer, needsCloudflareWait = false) {
-    console.log('🚀 Starting bypass for:', fullUrl);
+// دالة استخراج الرابط - معدلة لـ HiddenCloud
+async function extractDownloadLink(fullUrl, referer, site) {
+    console.log('🚀 Starting bypass for:', fullUrl, 'Site:', site);
     
-    const { browser, page } = await connect({
-        headless: false,
-        args: [],
-        customConfig: {},
-        turnstile: true,
-        connectOption: {
-            disableXvfb: false,
-            ignoreAllFlags: false,
-            proxy: {
-                host: 'gate.nodemaven.com',
-                port: 8080,
-                username: 'mixaliskitas_gmail_com-country-us-region-alabama',
-                password: '5pygsmquyy'
-            },
-            plugins: [pluginStealth()]
-        }
-    });
-
+    let browser;
     try {
-        // تفعيل اعتراض الطلبات بنفس الطريقة بالضبط
-        await page.setRequestInterception(true);
+        // إعدادات Puppeteer لـ HiddenCloud
+        const browserConfig = {
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
+                '--disable-gpu'
+            ]
+        };
+
+        browser = await puppeteer.launch(browserConfig);
+        const page = await browser.newPage();
         
-        page.on('request', (request) => {
-            // إضافة Referer لجميع الطلبات بنفس الطريقة بالضبط
-            const headers = {
-                ...request.headers(),
-                'Referer': referer
-            };
-            request.continue({ headers });
+        // إعدادات الصفحة
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setExtraHTTPHeaders({
+            'Referer': referer
+        });
+
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         });
 
         console.log('🌐 Navigating to:', fullUrl);
         
-        // نفس طريقة الـ navigation بالضبط
-        await page.goto(fullUrl);
+        // الانتقال للصفحة مع معالجة أخطاء محسنة
+        await page.goto(fullUrl, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30000
+        });
 
-        // انتظار ذكي بناءً على نوع الموقع
-        if (needsCloudflareWait) {
-            console.log('⏳ Waiting for Cloudflare bypass (15 seconds)...');
-            await new Promise(resolve => setTimeout(resolve, 15000));
-        } else {
-             console.log('⚡ No Cloudflare - proceeding immediately');
-        }
-
-        console.log('⏳ Waiting for page to load completely...');
+        await new Promise(resolve => setTimeout(resolve, 4000));
         
-        // انتظار إضافي للتأكد من تحميل الصفحة - مخفض للمواقع العادية
-        await new Promise(resolve => setTimeout(resolve, 6000));
-
-        // استخراج الرابط مباشرة - نفس المنطق تماماً
-        console.log('🔍 Extracting download link...');
+        // استخراج الرابط
         const downloadUrl = await page.evaluate(() => {
             const elements = document.querySelectorAll('button, a, div, span');
             
@@ -104,25 +86,17 @@ async function extractDownloadLink(fullUrl, referer, needsCloudflareWait = false
                 
                 if (text && (text.includes('get link') || 
                              text.includes('getlink') || 
-                             text.includes('download') ||
-                             text.includes('getting link') ||
-                             text.includes('Get Link') ||
-                             text.includes('تحميل'))) {
+                             text.includes('download'))) {
                     
-                    // إذا كان رابط مباشر
                     if (element.href && element.href.includes('http')) {
                         return element.href;
                     }
-                    // إذا كان لديه onclick
+                    
                     if (element.getAttribute('onclick')) {
                         const onclick = element.getAttribute('onclick');
                         const urlMatch = onclick.match(/window\.open\('([^']+)'\)/) || 
-                                       onclick.match(/location\.href='([^']+)'/);
+                                       onclick.match(/location\.href=['"]([^'"]+)['"]/);
                         if (urlMatch) return urlMatch[1];
-                    }
-                    // إذا كان لديه data-url
-                    if (element.getAttribute('data-url')) {
-                        return element.getAttribute('data-url');
                     }
                 }
             }
@@ -131,74 +105,30 @@ async function extractDownloadLink(fullUrl, referer, needsCloudflareWait = false
 
         if (downloadUrl) {
             console.log('✅ Download URL found:', downloadUrl);
-            return downloadUrl;
         } else {
-            console.log('❌ Download URL not found - trying second attempt...');
-            
-            // 🔄 المحاولة الثانية مع انتظار 6 ثواني إضافية
-            console.log('⏳ Second attempt - waiting 6 seconds...');
-            await new Promise(resolve => setTimeout(resolve, 6000));
-            
-            // استخراج الرابط مرة أخرى بعد الانتظار
-            console.log('🔍 Second attempt - extracting download link...');
-            const secondAttemptUrl = await page.evaluate(() => {
-                const elements = document.querySelectorAll('button, a, div, span');
-                
-                for (let element of elements) {
-                    const text = element.textContent?.trim().toLowerCase();
-                    
-                    if (text && (text.includes('get link') || 
-                                 text.includes('getlink') || 
-                                 text.includes('download') ||
-                                 text.includes('getting link') ||
-                                 text.includes('Get Link') ||
-                                 text.includes('تحميل'))) {
-                        
-                        // إذا كان رابط مباشر
-                        if (element.href && element.href.includes('http')) {
-                            return element.href;
-                        }
-                        // إذا كان لديه onclick
-                        if (element.getAttribute('onclick')) {
-                            const onclick = element.getAttribute('onclick');
-                            const urlMatch = onclick.match(/window\.open\('([^']+)'\)/) || 
-                                           onclick.match(/location\.href='([^']+)'/);
-                            if (urlMatch) return urlMatch[1];
-                        }
-                        // إذا كان لديه data-url
-                        if (element.getAttribute('data-url')) {
-                            return element.getAttribute('data-url');
-                        }
-                    }
-                }
-                return null;
-            });
-
-            if (secondAttemptUrl) {
-                console.log('✅ Download URL found in second attempt:', secondAttemptUrl);
-                return secondAttemptUrl;
-            } else {
-                console.log('❌ Download URL not found in second attempt');
-                return null;
-            }
+            console.log('❌ Download URL not found');
         }
 
+        return downloadUrl;
+
     } catch (error) {
-        console.error(' Error:', error.message);
+        console.error('💥 Error:', error.message);
         return null;
     } finally {
-        await browser.close();
+        if (browser) {
+            await browser.close();
+        }
     }
 }
 
-// API endpoint - نفس الـ project القديم
+// API endpoint
 app.post('/api/bypass', async (req, res) => {
     const { site, urlPath } = req.body;
 
     console.log('📥 Received request - Site:', site, 'Path:', urlPath);
 
     if (!site || !urlPath) {
-        return res.json({ 
+        return res.status(400).json({ 
             success: false, 
             error: 'Missing site or urlPath' 
         });
@@ -206,44 +136,38 @@ app.post('/api/bypass', async (req, res) => {
 
     const siteInfo = sites[site];
     if (!siteInfo) {
-        return res.json({ 
+        return res.status(400).json({ 
             success: false, 
             error: `Unsupported site: ${site}` 
         });
     }
 
     try {
-        // بناء الرابط الكامل - نفس المنطق
         const cleanPath = urlPath.replace(/^https?:\/\/[^\/]+\//, '').replace(/^\//, '');
         const fullUrl = siteInfo.baseUrl + cleanPath;
 
         console.log('🔗 Full URL:', fullUrl);
         
-        const downloadUrl = await extractDownloadLink(
-            fullUrl, 
-            siteInfo.referer, 
-            siteInfo.needsCloudflareWait
-        );
+        const downloadUrl = await extractDownloadLink(fullUrl, siteInfo.referer, site);
         
         if (downloadUrl) {
             res.json({
                 success: true,
                 originalUrl: fullUrl,
                 downloadUrl: downloadUrl,
-                site: site,
-                message: '✅ تم العثور على الرابط المباشر'
+                site: site
             });
         } else {
-            res.json({ 
+            res.status(404).json({ 
                 success: false, 
-                error: 'Download link is currently unavailable, try again'
+                error: 'Download link not found' 
             });
         }
     } catch (error) {
         console.error('💥 Error in API:', error.message);
-        res.json({ 
+        res.status(500).json({ 
             success: false, 
-            error: ` Error : ${error.message} , please try again`
+            error: 'Internal server error' 
         });
     }
 });
@@ -253,9 +177,18 @@ app.get('/', (req, res) => {
     res.sendFile(join(__dirname, 'public', 'index.html'));
 });
 
+// health check endpoint مهم لـ HiddenCloud
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'OK', 
+        service: 'URL Bypass API',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development'
+    });
+});
+
 app.listen(PORT, () => {
-    console.log(`🚀 Server running at http://localhost:${PORT}`);
-    console.log(`🌐 Supported sites: ${Object.keys(sites).join(', ')}`);
-    console.log(`⚡ Cloudflare sites: yorurl, linkvertise`);
-    console.log(`🚀 Normal sites: all others (faster processing)`);
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log('✅ Ready for HiddenCloud deployment');
 });
